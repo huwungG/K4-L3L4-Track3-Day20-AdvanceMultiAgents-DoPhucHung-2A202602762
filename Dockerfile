@@ -6,4 +6,6 @@ WORKDIR /lab
 COPY pyproject.toml ./
 COPY src ./src
 RUN pip install --no-cache-dir -e .
+# PANDAS cho tác vụ data-*: các tác vụ CSV cần thư viện này.
+RUN pip install --no-cache-dir pandas
 CMD ["bash"]

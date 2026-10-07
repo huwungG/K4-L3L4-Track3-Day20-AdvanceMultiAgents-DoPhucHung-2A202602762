@@ -3,13 +3,15 @@
 Pseudo-code: guides/pseudocode/01_agent.md
 Kiểm tra:    pytest tests/test_02_agent.py
 """
+import os
+import sys
 from pathlib import Path
 
-# TODO 1: import các thành phần cần dùng, ví dụ:
-#   from deepagents import create_deep_agent
-#   from deepagents.backends import LocalShellBackend
-#   from .model import make_model
-#   from .subagents import get_subagents
+from deepagents import create_deep_agent
+from deepagents.backends import LocalShellBackend
+
+from .model import make_model
+from .subagents import get_subagents
 
 # ---- CÓ SẴN, KHÔNG SỬA: system prompt dùng chung cho mọi sinh viên (để đường cơ sở so sánh được) ----
 PATHS_NOTE = (
@@ -45,9 +47,36 @@ def make_backend(sandbox: Path):
       - Thư mục gốc (root_dir) là `sandbox`; đường dẫn tương đối `workspace/...` và `skills/...`
         phải dùng được ở CẢ công cụ tệp lẫn shell (shell chạy với thư mục làm việc = `sandbox`).
       - Tác tử chạy được lệnh shell và gọi được `python` (cần đặt PATH).
-      - KHÔNG chuyển biến môi trường của bạn vào shell của tác tử (khóa API không được lộ).
+      - KHÔNG chuyển biến môi trường của bạn vào shell (khóa API không được lộ).
     """
-    raise NotImplementedError("TODO 2: cài đặt make_backend (xem guides/pseudocode/01_agent.md)")
+    # Tìm thư mục chứa python đang chạy tác tử; thêm vào PATH để shell của tác tử tìm được `python`
+    # và pip cùng mọi công cụ đi kèm. Trên POSIX thêm các đường dẫn chuẩn; trên Windows, nếu có
+    # Git for Windows thì nạp thêm thư mục usr/bin để shell có `cat`, `ls`, `head`, `tail`, `grep`,
+    # `sed`, `awk`, `wc`, `cut`, `sort`, `uniq`... (không có chúng, agent bị lỗi "command not found").
+    python_bin_dir = os.path.dirname(sys.executable)
+    extra_paths = ["/usr/local/bin", "/usr/bin", "/bin"]
+    if os.name == "nt":
+        for cand in (
+            r"C:\Program Files\Git\usr\bin",
+            r"C:\Program Files (x86)\Git\usr\bin",
+            r"C:\Program Files\Git\mingw64\bin",
+            r"C:\Program Files\Git\mingw64\usr\bin",
+        ):
+            if os.path.isdir(cand):
+                extra_paths.append(cand)
+    env = {
+        "PATH": python_bin_dir + os.pathsep + os.pathsep.join(extra_paths),
+        "HOME": str(sandbox),
+        # không sinh __pycache__ trong workspace của tác vụ
+        "PYTHONDONTWRITEBYTECODE": "1",
+    }
+    return LocalShellBackend(
+        root_dir=sandbox,
+        virtual_mode=True,          # công cụtệp: đường dẫn ảo, gốc = sandbox; `/workspace/x` và `workspace/x` đều hợp lệ
+        inherit_env=False,          # KHÔNG kế thừa biến môi trường (khóa API không lọt vào shell)
+        env=env,
+        timeout=120,
+    )
 
 
 def build_agent(sandbox: Path, mode: str = "single", use_skills: bool = False, model=None):
@@ -64,4 +93,28 @@ def build_agent(sandbox: Path, mode: str = "single", use_skills: bool = False, m
     mode không hợp lệ -> ném ValueError.
     Trả về: đồ thị (graph) đã biên dịch, gọi bằng `.invoke({"messages": [...]})`.
     """
-    raise NotImplementedError("TODO 3: cài đặt build_agent (xem guides/pseudocode/01_agent.md)")
+    if mode not in ("single", "subagents"):
+        raise ValueError(f"mode must be 'single' or 'subagents', got {mode!r}")
+
+    kwargs = {}
+    prompt = BASE_PROMPT
+
+    if mode == "subagents":
+        # subagent KHÔNG nhận BASE_PROMPT, nên nối PATHS_NOTE vào system_prompt của từng subagent
+        kwargs["subagents"] = [
+            {**sub, "system_prompt": sub["system_prompt"] + " " + PATHS_NOTE}
+            for sub in get_subagents()
+        ]
+        prompt = prompt + SUBAGENTS_NOTE
+
+    if use_skills:
+        # nạp thư mục /skills/ qua virtual path (tính gốc = root_dir của backend)
+        kwargs["skills"] = ["/skills/"]
+        prompt = prompt + SKILLS_NOTE
+
+    return create_deep_agent(
+        model=model if model is not None else make_model(),
+        system_prompt=prompt,
+        backend=make_backend(sandbox),
+        **kwargs,
+    )

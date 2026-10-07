@@ -6,10 +6,16 @@ Chạy thật:   python -m lab.runner --condition baseline --tasks learn
 """
 import argparse
 import json
+import shutil
+import tempfile
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 
+from langchain_core.callbacks import UsageMetadataCallbackHandler
 from langchain_core.messages import AIMessage, ToolMessage
 
+from .agent import build_agent
 from .grading import grade                                                      # có sẵn
 from .tasks import ROOT, get_task, hash_dir, list_tasks, prepare_sandbox         # có sẵn
 
@@ -46,6 +52,34 @@ def render_trace(messages) -> str:
     return "\n\n".join(parts)
 
 
+def _summarise_usage(usage: UsageMetadataCallbackHandler) -> dict:
+    """Cộng token trên mọi mô hình mà callback ghi nhận (kể cả subagent)."""
+    in_t = out_t = total_t = 0
+    for meta in usage.usage_metadata.values():
+        # UsageMetadata là TypedDict: input_tokens / output_tokens / total_tokens
+        in_t += int(meta.get("input_tokens", 0) or 0)
+        out_t += int(meta.get("output_tokens", 0) or 0)
+        total_t += int(meta.get("total_tokens", 0) or 0)
+    return {"input": in_t, "output": out_t, "total": total_t}
+
+
+def _skill_name_from_read_path(file_path: str) -> str | None:
+    """Trích tên skill từ file_path của read_file, nếu file nằm dưới skills/.
+
+    Chấp nhận cả dạng ảo ("/skills/<name>/SKILL.md") và tương đối ("skills/<name>/SKILL.md");
+    trả về None nếu đường dẫn không thuộc skills/ hoặc không có tên skill theo sau.
+    """
+    p = str(file_path).replace("\\", "/").lstrip("/")
+    if "skills/" not in p:
+        return None
+    # lấy phần đầu tiên sau "skills/"
+    after = p.split("skills/", 1)[1]
+    parts = [seg for seg in after.split("/") if seg]
+    if not parts or parts[0] in ("", "."):
+        return None
+    return parts[0]
+
+
 def run_task(task_id: str, condition: str, results_dir="results", model=None, recursion_limit: int = 60) -> dict:
     """Chạy MỘT tác vụ dưới MỘT điều kiện, chấm điểm, ghi kết quả, và trả về bản ghi (record).
 
@@ -65,7 +99,93 @@ def run_task(task_id: str, condition: str, results_dir="results", model=None, re
     Lỗi khi chạy tác tử KHÔNG được làm chương trình dừng: ghi vào `error` và vẫn chấm điểm.
     Sandbox là thư mục tạm NGOÀI kho mã nguồn và phải được xóa sau khi chạy.
     """
-    raise NotImplementedError("TODO 1: cài đặt run_task (xem guides/pseudocode/03_runner.md)")
+    cfg = CONDITIONS[condition]
+    task = get_task(task_id)
+    skills_dir = (ROOT / cfg["skills_dir"]) if cfg["skills_dir"] else None
+    out = Path(results_dir) / condition / task_id
+    out.mkdir(parents=True, exist_ok=True)
+
+    # Sandbox phải nằm ngoài kho mã nguồn: tạo ở thư mục tạm của hệ thống và xóa ở CUỐI CÙNG.
+    sandbox = Path(tempfile.mkdtemp(prefix=f"lab_sb_{task_id}_"))
+
+    record: dict = {
+        "task": task_id,
+        "condition": condition,
+        "role": task.role,
+        "error": None,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "final_message": "",
+    }
+
+    try:
+        prepare_sandbox(task, sandbox, skills_dir)
+        hash_truoc = hash_dir(sandbox / "skills")
+        record["skills_sha256"] = hash_truoc
+
+        agent = build_agent(
+            sandbox,
+            mode=cfg["mode"],
+            use_skills=(skills_dir is not None),
+            model=model,
+        )
+        usage = UsageMetadataCallbackHandler()
+        t0 = time.time()
+
+        messages: list = []
+        final_text = ""
+        # Lưu trạng thái mỗi bước; nếu recursion_limit chặn, ta vẫn giữ được phần vết cuối cùng.
+        # stream_mode="values" phát ra state mỗi node; node cuối chứa toàn bộ messages đã có.
+        try:
+            for step in agent.stream(
+                {"messages": [{"role": "user", "content": task.instruction}]},
+                config={"callbacks": [usage], "recursion_limit": recursion_limit},
+                stream_mode="values",
+            ):
+                if isinstance(step, dict) and "messages" in step:
+                    messages = step["messages"]
+        except Exception as exc:  # noqa: BLE001
+            record["error"] = f"{type(exc).__name__}: {exc}"
+
+        if messages:
+            final_text = str(getattr(messages[-1], "content", "") or "")
+
+        record["seconds"] = round(time.time() - t0, 1)
+        record["tokens"] = _summarise_usage(usage)
+        record["final_message"] = final_text
+
+        # Các số đếm chỉ trên LUỒNG CHÍNH (AIMessage.tool_calls)
+        all_calls = [tc for m in messages if isinstance(m, AIMessage) for tc in (m.tool_calls or [])]
+        record["tool_calls"] = len(all_calls)
+        record["subagent_calls"] = sum(1 for tc in all_calls if tc.get("name") == "task")
+
+        skill_names: set[str] = set()
+        for tc in all_calls:
+            if tc.get("name") == "read_file":
+                name = _skill_name_from_read_path(tc.get("args", {}).get("file_path", ""))
+                if name:
+                    skill_names.add(name)
+        record["skills_read"] = len(skill_names)
+
+        record["skills_modified"] = (hash_dir(sandbox / "skills") != hash_truoc)
+
+        # Chấm trên workspace đã bị tác tử sửa (nằm trong sandbox)
+        g = grade(task, sandbox / "workspace")
+        record["score"] = g.get("score", 0.0)
+        record["passed"] = g.get("passed", 0)
+        record["total"] = g.get("total", 0)
+        record["checks"] = g.get("checks", [])
+        if g.get("error"):
+            # giữ lỗi grading ở key phụ (không phải lỗi của tác tử)
+            record["grading_error"] = g["error"]
+
+        (out / "trace.md").write_text(render_trace(messages), encoding="utf-8")
+
+    finally:
+        # Dọn sandbox bất kể kết quả
+        shutil.rmtree(sandbox, ignore_errors=True)
+
+    (out / "run.json").write_text(json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8")
+    return record
 
 
 def main(argv=None):

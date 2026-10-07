@@ -3,6 +3,7 @@
 # Run:    docker run --rm -it --env-file .env -v "$PWD":/lab lab-deepagents
 FROM python:3.12-slim
 WORKDIR /lab
+RUN apt-get update -qq && apt-get install -y --no-install-recommends git >/dev/null && rm -rf /var/lib/apt/lists/*
 COPY pyproject.toml ./
 COPY src ./src
 RUN pip install --no-cache-dir -e .

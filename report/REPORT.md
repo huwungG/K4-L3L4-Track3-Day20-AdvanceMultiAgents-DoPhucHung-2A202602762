@@ -6,20 +6,20 @@
 
 | Họ tên | Mã sinh viên | Phần đóng góp |
 |---|---|---|
-| | | |
+| Đỗ Phúc Hưng | 2A202602762 | Toàn bộ |
 
-- Nhà cung cấp và mô hình (`LAB_MODEL`, không ghi khóa API), nhiệt độ (`LAB_TEMPERATURE`), `recursion_limit`:
-- Phiên bản Deep Agents (`pip show deepagents`), hệ điều hành, chạy trực tiếp hay trong Docker:
-- Số lần chạy tác vụ đã dùng / ngân sách:
-- Commit của tag `freeze`:
+- Nhà cung cấp và mô hình (`LAB_MODEL`, không ghi khóa API), nhiệt độ (`LAB_TEMPERATURE`), `recursion_limit`: `openai:gpt-4o-mini`, `LAB_TEMPERATURE=0`, `recursion_limit=60`.
+- Phiên bản Deep Agents (`pip show deepagents`), hệ điều hành, chạy trực tiếp hay trong Docker: `deepagents==0.7.21`, Windows 10, chạy trong Docker `python:3.12-slim` (vì README yêu cầu `/bin/sh` cho shell của tác tử).
+- Số lần chạy tác vụ đã dùng / ngân sách: 12 lần chạy chính thức (3 điều kiện × 4 tác vụ) + 1 sanity check nhỏ; tổng token của `input` + `output` ≈ 740k (đếm từ `run.json`).
+- Commit của tag `freeze`: xem bên dưới (`git rev-list -n 1 freeze`).
 
 ## 2. Giả thuyết (commit TRƯỚC tag `freeze`, Phần 4.0)
 
 > Dự đoán điều kiện nào đạt điểm cao nhất trên **tác vụ đánh giá** và vì sao. Nêu căn cứ từ phân loại lỗi (mục 4) và từ tài liệu tham khảo. Điền cả ba dòng; `verify_freeze.py` kiểm tra điều này.
 
-- H1 (subagents so với baseline):
-- H2 (skills-auto so với baseline):
-- H3 (tác vụ học so với tác vụ đánh giá):
+- H1 (subagents so với baseline): **không có khác biệt lớn** trên tác vụ đánh giá. Căn cứ: bài báo Anthropic "Building Effective Agents" ghi nhận multi-agent chỉ thực sự 4 hơn khi mỗi tác tử con có quyền truy cập thông tin KHÁC NHAU mà tác tử chính không có; ở đây cả ba subagent (explorer/implementer/reviewer) đều dùng chung file system và cùng có skill `read_file`/`write_file`/`execute`. Dự đoán: chi phí tăng (token ≈ 15× theo bài báo) mà điểm gần như không đổi, có thể còn **giảm** vì context isolation cắt mất trạng thái tích lũy. Nếu subagent `general-purpose` mặc định của Deep Agents đã đủ thì việc thêm 3 subagent chỉ thêm nhiễu.
+- H2 (skills-auto so với baseline): **`skills-auto` cải thiện** điểm trên các check quy ước (`rule_*`) vì 3 skill do nó viết đều nhắm vào output structure / error handling / common mistakes — đúng các lỗi E mà baseline mắc (xem mục 4). Nhưng **cải thiện yếu** trên check kỹ thuật (A–D) vì skill không dạy cài đặt, chỉ dạy kiểm tra. Căn cứ: SkillsBench (human-written skills +16 %), SkillEvolBench (LLM-generated skills ≈ 0 ở tác vụ mới).
+- H3 (tác vụ học so với tác vụ đánh giá): **tác vụ học điểm cao hơn tác vụ đánh giá** ở cùng điều kiện, vì quy ước đánh giá có thể khác (check quy ước mới chưa có trong lịch sử thất bại mà curator nhìn thấy) → đây là dấu hiệu **quá khớp** (SkillEvolBench) của skill sinh ra trên tác vụ học.
 
 ## 3. Làm quen Deep Agents (Phần 0.3)
 

@@ -3,21 +3,21 @@
   "condition": "skills-auto",
   "role": "eval",
   "error": "GraphRecursionError: Recursion limit of 60 reached without hitting a stop condition. You can increase the limit by setting the `recursion_limit` config key.\nFor troubleshooting, visit: https://docs.langchain.com/oss/python/langgraph/errors/GRAPH_RECURSION_LIMIT",
-  "timestamp": "2026-10-07T04:08:32.798397+00:00",
-  "final_message": "Successfully replaced 1 instance(s) of the string in '/workspace/bookings/timeutil.py'",
+  "timestamp": "2026-10-07T04:23:35.793501+00:00",
+  "final_message": "============================= test session starts ==============================\nplatform linux -- Python 3.12.15, pytest-9.1.1, pluggy-1.6.0\nrootdir: /tmp/lab_sb_code-eval_4rxgmdty\nplugins: anyio-4.15.1, langsmith-0.14.4\ncollected 3 items\n\nworkspace/tests/test_bookings.py F..                                     [100%]\n\n=================================== FAILURES ===================================\n_______________________ test_total_minutes_mixed_formats _______________________\n\n    def test_total_minutes_mixed_formats():\n>       assert total_minutes([\"1h30m\", \"2h\"]) == 210\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n\nworkspace/tests/test_bookings.py:6: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \nworkspace/bookings/schedule.py:7: in total_minutes\n    return sum(parse_duration(d) for d in durations)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nworkspace/bookings/schedule.py:7: in <genexpr>\n    return sum(parse_duration(d) for d in durations)\n               ^^^^^^^^^^^^^^^^^\n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\ntext = '2h'\n\n    def parse_duration(text):\n        \"\"\"Convert a duration string to whole minutes (int).\n    \n        Supported formats:\n          \"1h30m\" -> 90\n          \"2h\"    -> 120\n          \"45m\"   -> 45\n          \"1:30\"  -> 90\n          \"45\"    -> 45    # a bare number means minutes\n        Surrounding whitespace is ignored.\n        \"\"\"\n        m = re.fullmatch(r\"(\\d+)h(\\d+)m|^(\\d+):?(\\d+)?$|^(\\d+)$\", text.strip())\n        if m:\n            if m.group(1) and m.group(2):\n                return int(m.group(1)) * 60 + int(m.group(2))\n            elif m.group(1):\n                return int(m.group(2)) + int(m.group(1)) * 60\n            elif m.group(4):\n                return int(m.group(4))\n>       raise ValueError(f\"bad duration: {text!r}\")\nE       ValueError: bad duration: '2h'\n\nworkspace/bookings/timeutil.py:24: ValueError\n=========================== short test summary info ============================\nFAILED workspace/tests/test_bookings.py::test_total_minutes_mixed_formats - V...\n========================= 1 failed, 2 passed in 0.06s ==========================\n\nExit code: 1\n[Command failed with exit code 1]",
   "skills_sha256": "c305ff905bbff84ba612f98e1f14771899ee6a14a5e9b8f0b02cd16c84465cde",
-  "seconds": 52.4,
+  "seconds": 64.6,
   "tokens": {
-    "input": 179741,
-    "output": 1976,
-    "total": 181717
+    "input": 234166,
+    "output": 1473,
+    "total": 235639
   },
   "tool_calls": 36,
   "subagent_calls": 0,
   "skills_read": 0,
   "skills_modified": false,
-  "score": 0.2727272727272727,
-  "passed": 3,
+  "score": 0.18181818181818182,
+  "passed": 2,
   "total": 11,
   "checks": [
     {
@@ -47,7 +47,7 @@
     },
     {
       "name": "add_slot_no_shared_state",
-      "passed": true,
+      "passed": false,
       "detail": ""
     },
     {
